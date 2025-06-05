@@ -104,8 +104,18 @@ class RoundsCog(commands.Cog):
             
             # Find if this message is a voting message
             from sqlalchemy import text
-            query = text("SELECT id, round_number FROM rounds WHERE voting_message_id = :message_id AND is_completed = FALSE")
-            result = await session.execute(query, {"message_id": str(message.id)})
+            query = text("""
+                SELECT r.id, r.round_number 
+                FROM rounds r 
+                JOIN guilds g ON r.guild_id = g.id 
+                WHERE r.voting_message_id = :message_id 
+                AND r.is_completed = FALSE 
+                AND g.guild_id = :guild_id
+            """)
+            result = await session.execute(query, {
+                "message_id": str(message.id),
+                "guild_id": str(message.guild.id)
+            })
             round_data = result.fetchone()
             
             if not round_data:

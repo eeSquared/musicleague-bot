@@ -1,0 +1,35 @@
+name: "Music League Bot"
+version: "1.0.0"
+slug: "musicleague_bot"
+description: "A Discord bot for running music leagues with submissions, voting, and leaderboards"
+url: "https://github.com/eesquared/musicleague-bot"
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+startup: application
+boot: auto
+init: true
+options:
+  discord_token: ""
+  prefix: "!"
+  submission_days: 3
+  voting_days: 3
+schema:
+  discord_token: str
+  prefix: str
+  submission_days: "int(1,14)"
+  voting_days: "int(1,14)"
+ports:
+  8099/tcp: 8099
+ports_description:
+  8099/tcp: Web interface port (optional)
+webui: "http://[HOST]:[PORT:8099]"
+image: "ghcr.io/{arch}-addon-musicleague-bot"
+map:
+  - share:rw
+  - config:rw
+environment:
+  PYTHONUNBUFFERED: 1

@@ -6,6 +6,15 @@ import datetime
 from typing import Optional, List
 from ..db import DatabaseService
 
+# Emoji list for voting - supports up to 50 submissions
+VOTING_EMOJIS = [
+    "🎵", "🎶", "🎤", "🎧", "🎸", "🥁", "🎺", "🎷", "🎹", "🎻",
+    "🔥", "⭐", "🌟", "💫", "✨", "🎯", "🏆", "👑", "💎", "🌈",
+    "🚀", "⚡", "💥", "🎨", "🌸", "🌺", "🌻", "🌹", "🌼", "🌷",
+    "🎀", "🎊", "🎉", "🎈", "🎁", "💝", "💖", "💜", "💙", "💚",
+    "❤️", "🧡", "💛", "🤍", "🖤", "💯", "🔮", "🌙", "☀️", "🔶"
+]
+
 
 class SubmissionModal(Modal):
     """Modal for submitting a music entry."""
@@ -54,8 +63,6 @@ class SubmissionModal(Modal):
         )
 
 
-# No need for custom VoteView class as we'll use Discord's built-in poll feature
-
 
 class RoundsCog(commands.Cog):
     """Commands for managing Music League rounds."""
@@ -66,6 +73,71 @@ class RoundsCog(commands.Cog):
 
     def cog_unload(self):
         self.check_rounds.cancel()
+
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction, user):
+        """Handle reaction additions for voting."""
+        # Skip bot reactions
+        if user.bot:
+            return
+
+        # Check if this is a voting message
+        await self._handle_voting_reaction(reaction, user, True)
+
+    @commands.Cog.listener()
+    async def on_reaction_remove(self, reaction, user):
+        """Handle reaction removals for voting."""
+        # Skip bot reactions
+        if user.bot:
+            return
+
+        # Check if this is a voting message
+        await self._handle_voting_reaction(reaction, user, False)
+
+    async def _handle_voting_reaction(self, reaction, user, is_add):
+        """Handle voting reactions (both add and remove)."""
+        message = reaction.message
+        
+        # Check if this message is a voting message for an active round
+        async with self.bot.get_db_session() as session:
+            db = DatabaseService(session)
+            
+            # Find if this message is a voting message
+            from sqlalchemy import text
+            query = text("SELECT id, round_number FROM rounds WHERE voting_message_id = :message_id AND is_completed = FALSE")
+            result = await session.execute(query, {"message_id": str(message.id)})
+            round_data = result.fetchone()
+            
+            if not round_data:
+                return  # Not a voting message
+            
+            round_id = round_data[0]
+            
+            # Check if the reaction emoji is one of our voting emojis
+            emoji_str = str(reaction.emoji)
+            if emoji_str not in VOTING_EMOJIS:
+                return  # Not a voting emoji
+            
+            # If adding a reaction, enforce the 3-vote limit
+            if is_add:
+                # Count user's current reactions on this message
+                user_reaction_count = 0
+                for emoji in VOTING_EMOJIS:
+                    try:
+                        msg_reaction = discord.utils.get(message.reactions, emoji=emoji)
+                        if msg_reaction:
+                            users = [u async for u in msg_reaction.users()]
+                            if user in users:
+                                user_reaction_count += 1
+                    except:
+                        continue
+                
+                # If user already has 3 reactions, remove this new one
+                if user_reaction_count > 3:
+                    try:
+                        await message.remove_reaction(reaction.emoji, user)
+                    except:
+                        pass
 
     @tasks.loop(
         minutes=5
@@ -110,7 +182,7 @@ class RoundsCog(commands.Cog):
         await self.bot.wait_until_ready()
 
     async def start_voting_phase(self, db, round_obj):
-        """Start the voting phase for a round."""
+        """Start the voting phase for a round using emoji reactions."""
         # Get guild info without lazy loading
         discord_guild_id, channel_id, voting_days = await db.get_round_guild_info(
             round_obj.id
@@ -153,30 +225,29 @@ class RoundsCog(commands.Cog):
 
             return
 
-        # Create an introduction message for the poll
-        intro_message = f"# 🎵 Voting for Round #{round_obj.round_number} 🎵\n\n"
-        intro_message += f"Vote for your favorite submission below! Voting ends <t:{int(round_obj.voting_end.timestamp())}:R>\n\n"
+        # Check if we have too many submissions for our emoji set
+        if len(submissions) > len(VOTING_EMOJIS):
+            # Fallback: truncate to available emojis and send warning
+            submissions = submissions[:len(VOTING_EMOJIS)]
+
+        # Create the voting message content
+        voting_content = f"# 🎵 Voting for Round #{round_obj.round_number} 🎵\n\n"
+        voting_content += f"React with emojis to vote for your favorite submissions! You can vote for up to **3 submissions**.\n"
+        voting_content += f"Voting ends <t:{int(round_obj.voting_end.timestamp())}:R>\n\n"
 
         if round_obj.theme:
-            intro_message += f"**Theme**: {round_obj.theme}\n\n"
+            voting_content += f"**Theme**: {round_obj.theme}\n\n"
 
-        # Create options for the poll - each will be a shortened version of the submission
-        poll_options = []
-        submission_details = []
-
+        # Add each submission with its emoji
         for idx, submission in enumerate(submissions):
-            # Add to poll options
-            poll_options.append(f"Submission #{idx + 1}")
-
-            # Create detailed submission text for followup message
-            detail_text = f"**Submission #{idx + 1}**\n"
-            detail_text += f"{submission.content}\n"
+            emoji = VOTING_EMOJIS[idx]
+            voting_content += f"{emoji} **Submission #{idx + 1}**\n"
+            voting_content += f"{submission.content}\n"
             if submission.description:
-                detail_text += f"\n{submission.description}\n"
+                voting_content += f"*{submission.description}*\n"
+            voting_content += "\n"
 
-            submission_details.append(detail_text)
-
-        # We already have the channel_id from our earlier call
+        # Find the target channel
         target_channel = None
 
         if channel_id:
@@ -186,9 +257,7 @@ class RoundsCog(commands.Cog):
                 target_channel
                 and not target_channel.permissions_for(guild.me).send_messages
             ):
-                target_channel = (
-                    None  # Reset if we don't have permission to send messages
-                )
+                target_channel = None
 
         # If no dedicated channel or it wasn't found/accessible, find an appropriate channel
         if not target_channel:
@@ -197,67 +266,82 @@ class RoundsCog(commands.Cog):
                     target_channel = channel
                     break
 
-        # If we found a valid channel, send the poll
+        # If we found a valid channel, send the voting message
         if target_channel:
             try:
-                # Create a Poll object
-                poll = discord.Poll(
-                    question="Which submission is your favorite?",
-                    multiple=False,
-                    duration=datetime.timedelta(days=voting_days),
-                )
-
-                for option in poll_options:
-                    poll.add_answer(text=option)
-
-                # Create the poll message
-                poll_message = await target_channel.send(
-                    content=intro_message,
-                    poll=poll,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                )
-
-                # Save the poll message ID
-                await db.update_round_message_ids(
-                    round_obj.id, voting_message_id=str(poll_message.id)
-                )
-
-                # Send additional details about submissions
-                details_message = "## Submission Details\n\n"
-                details_message += "\n\n".join(submission_details)
-
-                # Split into multiple messages if needed (2000 char limit)
-                if len(details_message) <= 2000:
-                    await target_channel.send(
-                        details_message, allowed_mentions=discord.AllowedMentions.none()
+                # Split the message if it's too long (Discord's 2000 char limit)
+                if len(voting_content) <= 2000:
+                    voting_message = await target_channel.send(
+                        voting_content, allowed_mentions=discord.AllowedMentions.none()
                     )
                 else:
-                    # Split into chunks
-                    chunks = []
-                    current_chunk = "## Submission Details\n\n"
-
-                    for detail in submission_details:
-                        if len(current_chunk + detail + "\n\n") > 1900:
-                            chunks.append(current_chunk)
-                            current_chunk = detail + "\n\n"
+                    # Split into main voting message and details
+                    main_content = f"# 🎵 Voting for Round #{round_obj.round_number} 🎵\n\n"
+                    main_content += f"React with emojis to vote for your favorite submissions! You can vote for up to **3 submissions**.\n"
+                    main_content += f"Voting ends <t:{int(round_obj.voting_end.timestamp())}:R>\n\n"
+                    
+                    if round_obj.theme:
+                        main_content += f"**Theme**: {round_obj.theme}\n\n"
+                    
+                    main_content += "See submission details below:\n\n"
+                    
+                    # Add just the emoji and submission number
+                    for idx, submission in enumerate(submissions):
+                        emoji = VOTING_EMOJIS[idx]
+                        main_content += f"{emoji} Submission #{idx + 1}\n"
+                    
+                    voting_message = await target_channel.send(
+                        main_content, allowed_mentions=discord.AllowedMentions.none()
+                    )
+                    
+                    # Send detailed submission info in follow-up messages
+                    details_content = ""
+                    for idx, submission in enumerate(submissions):
+                        emoji = VOTING_EMOJIS[idx]
+                        detail_entry = f"{emoji} **Submission #{idx + 1}**\n"
+                        detail_entry += f"{submission.content}\n"
+                        if submission.description:
+                            detail_entry += f"*{submission.description}*\n"
+                        detail_entry += "\n"
+                        
+                        # Check if adding this entry would exceed the limit
+                        if len(details_content + detail_entry) > 1900:
+                            if details_content:
+                                await target_channel.send(
+                                    details_content, allowed_mentions=discord.AllowedMentions.none()
+                                )
+                            details_content = detail_entry
                         else:
-                            current_chunk += detail + "\n\n"
-
-                    if current_chunk:
-                        chunks.append(current_chunk)
-
-                    for chunk in chunks:
+                            details_content += detail_entry
+                    
+                    # Send any remaining details
+                    if details_content:
                         await target_channel.send(
-                            chunk, allowed_mentions=discord.AllowedMentions.none()
+                            details_content, allowed_mentions=discord.AllowedMentions.none()
                         )
+
+                # Add emoji reactions for each submission
+                for idx, submission in enumerate(submissions):
+                    emoji = VOTING_EMOJIS[idx]
+                    try:
+                        await voting_message.add_reaction(emoji)
+                    except discord.HTTPException:
+                        # If we can't add a reaction, skip it
+                        pass
+
+                # Save the voting message ID
+                await db.update_round_message_ids(
+                    round_obj.id, voting_message_id=str(voting_message.id)
+                )
+
             except Exception as e:
-                # If poll creation fails, send an error message and try an alternative approach
+                # If message creation fails, send an error message
                 await target_channel.send(
-                    f"Error creating poll: {str(e)}. Please contact the bot administrator."
+                    f"Error creating voting message: {str(e)}. Please contact the bot administrator."
                 )
 
     async def complete_round(self, db, round_obj):
-        """Complete a round and calculate results."""
+        """Complete a round and calculate results based on emoji reactions."""
         # Get guild info without lazy loading
         discord_guild_id, channel_id, _ = await db.get_round_guild_info(round_obj.id)
         if not discord_guild_id:
@@ -270,65 +354,50 @@ class RoundsCog(commands.Cog):
         # Get submissions
         submissions = await db.get_round_submissions(round_obj.id)
 
-        # Try to get the poll results if available
-        poll_data = {}
+        # Count emoji reactions if we have a voting message
         if round_obj.voting_message_id:
-            # We already have the channel_id from our earlier call
+            # Try to get the voting message from the dedicated channel first
+            voting_message = None
+            
             if channel_id:
                 target_channel = guild.get_channel(int(channel_id))
                 if target_channel:
                     try:
-                        # Try to get the poll from the dedicated channel first
-                        poll_message = await target_channel.fetch_message(
+                        voting_message = await target_channel.fetch_message(
                             int(round_obj.voting_message_id)
                         )
-
-                        # Process poll data if found
-                        if hasattr(poll_message, "poll") and poll_message.poll:
-                            # Extract vote counts
-                            for idx, answer in enumerate(poll_message.poll.answers):
-                                if idx < len(submissions):
-                                    # Update submissions with vote counts
-                                    submission = submissions[idx]
-                                    submission.votes_received = answer.vote_count
-                                    await db.session.commit()
-                            # End the poll if it's still active
-                            if not poll_message.poll.is_finalized():
-                                await poll_message.poll.end()
-                            # Poll found and processed, no need to look further
-                            poll_data = True
                     except Exception as e:
-                        # Message not found in dedicated channel, we'll search all channels
-                        print(
-                            f"Error fetching poll message from dedicated channel: {e}"
-                        )
+                        print(f"Error fetching voting message from dedicated channel: {e}")
 
-            # If we didn't find the poll message in a dedicated channel, search all channels
-            if not poll_data:
+            # If we didn't find it in the dedicated channel, search all channels
+            if not voting_message:
                 for channel in guild.text_channels:
                     try:
-                        # Fetch the poll message
-                        poll_message = await channel.fetch_message(
+                        voting_message = await channel.fetch_message(
                             int(round_obj.voting_message_id)
                         )
-
-                        # Check if it has a poll
-                        if hasattr(poll_message, "poll") and poll_message.poll:
-                            # Extract vote counts
-                            for idx, answer in enumerate(poll_message.poll.answers):
-                                if idx < len(submissions):
-                                    # Update submissions with vote counts from the poll
-                                    submission = submissions[idx]
-                                    submission.votes_received = answer.vote_count
-                                    await db.session.commit()
-                            # End the poll if it's still active
-                            if not poll_message.poll.is_finalized():
-                                await poll_message.poll.end()
                         break
-                    except Exception as e:
-                        # Message not found or other error
-                        print(f"Error fetching poll message: {e}")
-                        pass
+                    except Exception:
+                        continue
+
+            # Count reactions for each submission
+            if voting_message:
+                for idx, submission in enumerate(submissions):
+                    if idx < len(VOTING_EMOJIS):
+                        emoji = VOTING_EMOJIS[idx]
+                        # Find the reaction for this emoji
+                        reaction = discord.utils.get(voting_message.reactions, emoji=emoji)
+                        if reaction:
+                            # Count reactions (subtract 1 for the bot's initial reaction)
+                            vote_count = max(0, reaction.count - 1)
+                            submission.votes_received = vote_count
+                        else:
+                            submission.votes_received = 0
+                    else:
+                        submission.votes_received = 0
+
+                # Commit the vote counts to the database
+                await db.session.commit()
 
         # Calculate results
         results = await db.calculate_round_results(round_obj.id)
@@ -356,7 +425,12 @@ class RoundsCog(commands.Cog):
             elif idx == 2:
                 medal = "🥉 "
 
-            results_content += f"### {medal}#{idx + 1}: {username} - {score} votes\n"
+            # Show the emoji that was used for voting
+            voting_emoji = ""
+            if idx < len(VOTING_EMOJIS):
+                voting_emoji = f"{VOTING_EMOJIS[idx]} "
+
+            results_content += f"### {medal}{voting_emoji}#{idx + 1}: {username} - {score} votes\n"
             results_content += f"{submission.content}\n"
             if submission.description:
                 results_content += f"*{submission.description}*\n"
@@ -376,7 +450,7 @@ class RoundsCog(commands.Cog):
         else:
             results_content += "No players yet!\n"
 
-        # We already have the channel_id from our earlier call
+        # Find the target channel for results
         target_channel = None
 
         if channel_id:
@@ -386,9 +460,7 @@ class RoundsCog(commands.Cog):
                 target_channel
                 and not target_channel.permissions_for(guild.me).send_messages
             ):
-                target_channel = (
-                    None  # Reset if we don't have permission to send messages
-                )
+                target_channel = None
 
         # If no dedicated channel or it wasn't found/accessible, find an appropriate channel
         if not target_channel:
@@ -420,7 +492,8 @@ class RoundsCog(commands.Cog):
                     username = user.display_name if user else f"User {player.user_id}"
 
                     medal = "🥇 " if idx == 0 else "🥈 " if idx == 1 else "🥉 "
-                    main_results += f"{medal} #{idx + 1}: {username} - {score} votes\n"
+                    voting_emoji = f"{VOTING_EMOJIS[idx]} " if idx < len(VOTING_EMOJIS) else ""
+                    main_results += f"{medal}{voting_emoji}#{idx + 1}: {username} - {score} votes\n"
 
                 results_message = await target_channel.send(main_results)
 
@@ -437,7 +510,8 @@ class RoundsCog(commands.Cog):
                         if idx == 0
                         else "🥈 " if idx == 1 else "🥉 " if idx == 2 else ""
                     )
-                    entry = f"### {medal}#{idx + 1}: {username} - {score} votes\n"
+                    voting_emoji = f"{VOTING_EMOJIS[idx]} " if idx < len(VOTING_EMOJIS) else ""
+                    entry = f"### {medal}{voting_emoji}#{idx + 1}: {username} - {score} votes\n"
                     entry += f"{submission.content}\n"
                     if submission.description:
                         entry += f"*{submission.description}*\n"

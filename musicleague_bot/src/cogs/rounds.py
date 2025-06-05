@@ -245,8 +245,7 @@ class RoundsCog(commands.Cog):
         voting_content += f"React with emojis to vote for your favorite submissions! You can vote for up to **3 submissions**.\n"
         voting_content += f"Voting ends <t:{int(round_obj.voting_end.timestamp())}:R>\n\n"
 
-        if round_obj.theme:
-            voting_content += f"**Theme**: {round_obj.theme}\n\n"
+        voting_content += f"**Theme**: {round_obj.theme}\n\n"
 
         # Add each submission with its emoji
         for idx, submission in enumerate(submissions):
@@ -290,8 +289,7 @@ class RoundsCog(commands.Cog):
                     main_content += f"React with emojis to vote for your favorite submissions! You can vote for up to **3 submissions**.\n"
                     main_content += f"Voting ends <t:{int(round_obj.voting_end.timestamp())}:R>\n\n"
                     
-                    if round_obj.theme:
-                        main_content += f"**Theme**: {round_obj.theme}\n\n"
+                    main_content += f"**Theme**: {round_obj.theme}\n\n"
                     
                     main_content += "See submission details below:\n\n"
                     
@@ -416,8 +414,7 @@ class RoundsCog(commands.Cog):
         results_content = f"# 🏆 Results for Round #{round_obj.round_number} 🏆\n\n"
         results_content += "The round has ended! Here are the results:\n\n"
 
-        if round_obj.theme:
-            results_content += f"**Theme**: {round_obj.theme}\n\n"
+        results_content += f"**Theme**: {round_obj.theme}\n\n"
 
         # Add each submission to the results with their score
         for idx, (player, submission, score) in enumerate(results):
@@ -710,8 +707,7 @@ class RoundsCog(commands.Cog):
                 color=discord.Color.blue(),
             )
 
-            if active_round.theme:
-                embed.add_field(name="Theme", value=active_round.theme, inline=False)
+            embed.add_field(name="Theme", value=active_round.theme, inline=False)
 
             now = datetime.datetime.utcnow()
 

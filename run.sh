@@ -1,14 +1,22 @@
 #!/usr/bin/env bashio
 
-# Get configuration values
+# Set config path
 CONFIG_PATH=/data/options.json
-DISCORD_TOKEN=$(bashio::config 'discord_token')
-PREFIX=$(bashio::config 'prefix')
-SUBMISSION_DAYS=$(bashio::config 'submission_days')
-VOTING_DAYS=$(bashio::config 'voting_days')
+
+# Validate JSON format
+if ! jq . "$CONFIG_PATH" >/dev/null 2>&1; then
+    bashio::log.error "Invalid JSON format in options.json"
+    exit 1
+fi
+
+# Get configuration values directly from JSON
+DISCORD_TOKEN=$(jq -r '.discord_token' "$CONFIG_PATH")
+PREFIX=$(jq -r '.prefix' "$CONFIG_PATH")
+SUBMISSION_DAYS=$(jq -r '.submission_days' "$CONFIG_PATH")
+VOTING_DAYS=$(jq -r '.voting_days' "$CONFIG_PATH")
 
 # Check if required configuration is provided
-if [ -z "$DISCORD_TOKEN" ]; then
+if [ -z "$DISCORD_TOKEN" ] || [ "$DISCORD_TOKEN" = "null" ]; then
     bashio::log.error "Discord token is required. Please configure it in the add-on settings."
     exit 1
 fi
@@ -18,6 +26,10 @@ echo "DISCORD_TOKEN=$DISCORD_TOKEN" > /app/.env
 echo "PREFIX=$PREFIX" >> /app/.env
 echo "SUBMISSION_DAYS=$SUBMISSION_DAYS" >> /app/.env
 echo "VOTING_DAYS=$VOTING_DAYS" >> /app/.env
+
+# Debug: Print .env file content (excluding token)
+bashio::log.info "Created .env file with content:"
+grep -v "DISCORD_TOKEN" /app/.env
 
 # Display information
 bashio::log.info "Starting Music League Bot..."

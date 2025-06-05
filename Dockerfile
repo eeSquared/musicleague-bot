@@ -1,32 +1,36 @@
 ARG BUILD_FROM
+ARG BUILD_VERSION
+ARG BUILD_ARCH
 FROM $BUILD_FROM
 
 # Set shell
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+SHELL ["/bin/sh", "-o", "pipefail", "-c"]
 
-# Install required packages and build dependencies
+# Update package index
+RUN apk update
+
+# Install base Python and pip
 RUN apk add --no-cache \
     python3 \
     py3-pip \
-    git \
-    gcc \
-    musl-dev \
-    python3-dev \
-    libffi-dev \
-    cargo \
-    openssl-dev
+    py3-setuptools \
+    py3-wheel \
+    jq
+
+# Create and activate virtual environment
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
 
 # Set working directory
 WORKDIR /app
 
-# Copy requirements
+# Copy requirements first for better caching
 COPY requirements.txt /app/
 
-# Upgrade pip and install requirements
-RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip3 install --no-cache-dir -r requirements.txt
+# Install Python requirements in the virtual environment
+RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Copy data
+# Copy the rest of the application
 COPY . /app/
 
 # Create data directory

@@ -4,11 +4,17 @@ FROM $BUILD_FROM
 # Set shell
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Install required packages
+# Install required packages and build dependencies
 RUN apk add --no-cache \
     python3 \
     py3-pip \
-    git
+    git \
+    gcc \
+    musl-dev \
+    python3-dev \
+    libffi-dev \
+    cargo \
+    openssl-dev
 
 # Set working directory
 WORKDIR /app
@@ -16,8 +22,9 @@ WORKDIR /app
 # Copy requirements
 COPY requirements.txt /app/
 
-# Install Python requirements
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Upgrade pip and install requirements
+RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip3 install --no-cache-dir -r requirements.txt
 
 # Copy data
 COPY . /app/

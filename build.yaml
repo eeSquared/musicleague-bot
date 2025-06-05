@@ -7,5 +7,5 @@ build_from:
 labels:
   org.opencontainers.image.title: "Home Assistant Add-on: Music League Bot"
   org.opencontainers.image.description: "Run Discord music competitions with submissions, voting, and leaderboards"
-  org.opencontainers.image.source: "https://github.com/yourusername/musicleague-bot"
+  org.opencontainers.image.source: "https://github.com/eesquared/musicleague-bot"
   org.opencontainers.image.licenses: "MIT"

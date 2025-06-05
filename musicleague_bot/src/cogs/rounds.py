@@ -165,13 +165,8 @@ class RoundsCog(commands.Cog):
         submission_details = []
 
         for idx, submission in enumerate(submissions):
-            # Create a short description for the poll option (max 80 chars)
-            short_desc = submission.content
-            if len(short_desc) > 77:  # Account for "..."
-                short_desc = short_desc[:77] + "..."
-
             # Add to poll options
-            poll_options.append(f"Submission #{idx + 1}: {short_desc}")
+            poll_options.append(f"Submission #{idx + 1}")
 
             # Create detailed submission text for followup message
             detail_text = f"**Submission #{idx + 1}**\n"

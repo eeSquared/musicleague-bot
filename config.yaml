@@ -10,6 +10,10 @@ arch:
   - i386
 startup: application
 init: false
+map:
+  - share:rw
+  - config:rw
+  - addon_config:rw
 options:
   discord_token: ""
   prefix: "!"

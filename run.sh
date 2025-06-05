@@ -36,18 +36,46 @@ bashio::log.info "Starting Music League Bot..."
 bashio::log.info "Submission period: ${SUBMISSION_DAYS} days"
 bashio::log.info "Voting period: ${VOTING_DAYS} days"
 
-# Create a symbolic link to make data persistent
+# Create a directory for persistent storage
+bashio::log.info "Setting up persistent database storage..."
 if [ ! -d "/data/db" ]; then
     mkdir -p /data/db
+    bashio::log.info "Created /data/db directory"
 fi
 
+# Check for existing database and move it to persistent storage
 if [ -f "/app/musicleague.db" ] && [ ! -L "/app/musicleague.db" ]; then
+    bashio::log.info "Moving database to persistent storage"
     mv /app/musicleague.db /data/db/musicleague.db
 fi
 
-if [ ! -L "/app/musicleague.db" ]; then
-    ln -s /data/db/musicleague.db /app/musicleague.db
+# Make sure the database file exists in persistent storage
+if [ ! -f "/data/db/musicleague.db" ]; then
+    bashio::log.info "Creating empty database file"
+    touch /data/db/musicleague.db
 fi
 
-# Run the bot
-python3 /app/main.py
+# Remove any existing symlink before creating a new one
+if [ -L "/app/musicleague.db" ]; then
+    bashio::log.info "Removing existing symlink"
+    rm /app/musicleague.db
+fi
+
+# Create a symbolic link to the persistent database
+bashio::log.info "Creating symlink to persistent database"
+ln -s /data/db/musicleague.db /app/musicleague.db
+
+# Set environment variable to use the symlinked database
+echo "DATABASE_URL=sqlite:///musicleague.db" >> /app/.env
+bashio::log.info "Database configured at /data/db/musicleague.db"
+
+# Debug: Show file status
+bashio::log.info "File checks:"
+ls -la /app/musicleague.db
+ls -la /data/db/
+df -h /data
+
+# Run the bot with detailed logging
+bashio::log.info "Starting Music League Bot..."
+cd /app
+python3 -u /app/main.py

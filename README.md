@@ -8,7 +8,7 @@ A Discord bot that allows server members to play a Music League game. This bot a
 - Start new rounds with optional themes
 - Submit music entries via links or text
 - Automatic transition from submission to voting periods
-- Uses Discord's built-in poll feature for voting on submissions
+- Uses emoji reactions for voting on submissions (supports unlimited submissions, up to 3 votes per player)
 - Leaderboards to track player scores
 - Server-specific configuration and data
 
@@ -87,8 +87,8 @@ All commands are available as Discord slash commands:
    - Optionally designate a specific channel for all Music League activity
 2. Someone starts a new round with `/start` providing a required theme
 3. Players submit their entries with `/submit` during the submission period
-4. Once the submission period ends naturally (or an admin uses `/end_submission` to force it), voting will automatically open using Discord's built-in poll feature in the next check cycle (within 5 minutes)
-5. Players vote on their favorite submissions
+4. Once the submission period ends naturally (or an admin uses `/end_submission` to force it), voting will automatically open using emoji reactions in the next check cycle (within 5 minutes)
+5. Players vote on their favorite submissions by reacting with emojis (up to 3 votes per player)
 6. When the voting period ends naturally (or an admin uses `/end_voting` to force it), results will be calculated in the next check cycle (within 5 minutes)
 7. A new round can begin!
 

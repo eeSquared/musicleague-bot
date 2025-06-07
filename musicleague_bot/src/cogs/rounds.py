@@ -240,22 +240,6 @@ class RoundsCog(commands.Cog):
             # Fallback: truncate to available emojis and send warning
             submissions = submissions[:len(VOTING_EMOJIS)]
 
-        # Create the voting message content
-        voting_content = f"# 🎵 Voting for Round #{round_obj.round_number} 🎵\n\n"
-        voting_content += f"React with emojis to vote for your favorite submissions! You can vote for up to **3 submissions**.\n"
-        voting_content += f"Voting ends <t:{int(round_obj.voting_end.timestamp())}:R>\n\n"
-
-        voting_content += f"**Theme**: {round_obj.theme}\n\n"
-
-        # Add each submission with its emoji
-        for idx, submission in enumerate(submissions):
-            emoji = VOTING_EMOJIS[idx]
-            voting_content += f"{emoji} **Submission #{idx + 1}**\n"
-            voting_content += f"{submission.content}\n"
-            if submission.description:
-                voting_content += f"*{submission.description}*\n"
-            voting_content += "\n"
-
         # Find the target channel
         target_channel = None
 
@@ -278,55 +262,20 @@ class RoundsCog(commands.Cog):
         # If we found a valid channel, send the voting message
         if target_channel:
             try:
-                # Split the message if it's too long (Discord's 2000 char limit)
-                if len(voting_content) <= 2000:
-                    voting_message = await target_channel.send(
-                        voting_content, allowed_mentions=discord.AllowedMentions.none()
+                # Send a header message followed by detailed submission info
+                main_content = self._format_voting_header(round_obj)
+                
+                # Send the main voting message
+                voting_message = await target_channel.send(
+                    main_content, allowed_mentions=discord.AllowedMentions.none()
+                )
+                
+                # Send detailed submission info in follow-up messages
+                for idx, submission in enumerate(submissions):
+                    detail_entry = self._format_voting_submission_detail(idx, submission)
+                    await target_channel.send(
+                        detail_entry, allowed_mentions=discord.AllowedMentions.none()
                     )
-                else:
-                    # Split into main voting message and details
-                    main_content = f"# 🎵 Voting for Round #{round_obj.round_number} 🎵\n\n"
-                    main_content += f"React with emojis to vote for your favorite submissions! You can vote for up to **3 submissions**.\n"
-                    main_content += f"Voting ends <t:{int(round_obj.voting_end.timestamp())}:R>\n\n"
-                    
-                    main_content += f"**Theme**: {round_obj.theme}\n\n"
-                    
-                    main_content += "See submission details below:\n\n"
-                    
-                    # Add just the emoji and submission number
-                    for idx, submission in enumerate(submissions):
-                        emoji = VOTING_EMOJIS[idx]
-                        main_content += f"{emoji} Submission #{idx + 1}\n"
-                    
-                    voting_message = await target_channel.send(
-                        main_content, allowed_mentions=discord.AllowedMentions.none()
-                    )
-                    
-                    # Send detailed submission info in follow-up messages
-                    details_content = ""
-                    for idx, submission in enumerate(submissions):
-                        emoji = VOTING_EMOJIS[idx]
-                        detail_entry = f"{emoji} **Submission #{idx + 1}**\n"
-                        detail_entry += f"{submission.content}\n"
-                        if submission.description:
-                            detail_entry += f"*{submission.description}*\n"
-                        detail_entry += "\n"
-                        
-                        # Check if adding this entry would exceed the limit
-                        if len(details_content + detail_entry) > 1900:
-                            if details_content:
-                                await target_channel.send(
-                                    details_content, allowed_mentions=discord.AllowedMentions.none()
-                                )
-                            details_content = detail_entry
-                        else:
-                            details_content += detail_entry
-                    
-                    # Send any remaining details
-                    if details_content:
-                        await target_channel.send(
-                            details_content, allowed_mentions=discord.AllowedMentions.none()
-                        )
 
                 # Add emoji reactions for each submission
                 for idx, submission in enumerate(submissions):
@@ -392,6 +341,24 @@ class RoundsCog(commands.Cog):
         
         return leaderboard_msg
     
+    def _format_voting_header(self, round_obj):
+        """Format the header section of a voting message."""
+        header = f"# 🎵 Voting for Round #{round_obj.round_number} 🎵\n\n"
+        header += f"React with emojis to vote for your favorite submissions! You can vote for up to **3 submissions**.\n"
+        header += f"Voting ends <t:{int(round_obj.voting_end.timestamp())}:R>\n\n"
+        header += f"**Theme**: {round_obj.theme}\n\n"
+        return header
+        
+    def _format_voting_submission_detail(self, submission_index, submission):
+        """Format detailed submission information for voting messages."""
+        emoji = VOTING_EMOJIS[submission_index] if submission_index < len(VOTING_EMOJIS) else "📌"
+        detail = f"{emoji} **Submission #{submission_index + 1}**\n"
+        detail += f"{submission.content}\n"
+        if submission.description:
+            detail += f"*{submission.description}*\n"
+        detail += "\n"
+        return detail
+
     async def complete_round(self, db, round_obj):
         """Complete a round and calculate results based on emoji reactions."""
         # Get guild info without lazy loading

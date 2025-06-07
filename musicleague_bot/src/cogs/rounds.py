@@ -417,11 +417,16 @@ class RoundsCog(commands.Cog):
         results_content += f"**Theme**: {round_obj.theme}\n\n"
 
         # Add each submission to the results with their score
-        for idx, (player, submission, score) in enumerate(results):
-            user = self.bot.get_user(int(player.user_id)) or await self.bot.fetch_user(
-                int(player.user_id)
-            )
-            username = user.display_name if user else f"User {player.user_id}"
+        for idx, (player, submission, submission_index, score) in enumerate(results):
+            user = None
+            try:
+                user = self.bot.get_user(int(player.user_id)) or await self.bot.fetch_user(
+                    int(player.user_id)
+                )
+                username = user.display_name if user else f"User {player.user_id}"
+            except Exception:
+                # Default to None if we can't fetch the user
+                username = f"User {player.user_id}"
 
             # Add medal emoji for top 3
             medal = ""
@@ -434,10 +439,10 @@ class RoundsCog(commands.Cog):
 
             # Show the emoji that was used for voting
             voting_emoji = ""
-            if idx < len(VOTING_EMOJIS):
-                voting_emoji = f"{VOTING_EMOJIS[idx]} "
+            if submission_index < len(VOTING_EMOJIS):
+                voting_emoji = f"{VOTING_EMOJIS[submission_index]} "
 
-            results_content += f"### {medal}{voting_emoji}#{idx + 1}: {username} - {score} votes\n"
+            results_content += f"### {medal}{voting_emoji}#{submission_index + 1}: {username} - {score} votes\n"
             results_content += f"{submission.content}\n"
             if submission.description:
                 results_content += f"*{submission.description}*\n"
@@ -449,10 +454,14 @@ class RoundsCog(commands.Cog):
         results_content += "## 📊 Current Leaderboard\n\n"
         if leaderboard:
             for idx, player in enumerate(leaderboard, 1):
-                user = self.bot.get_user(
-                    int(player.user_id)
-                ) or await self.bot.fetch_user(int(player.user_id))
-                username = user.display_name if user else f"User {player.user_id}"
+                try:
+                    user = self.bot.get_user(
+                        int(player.user_id)
+                    ) or await self.bot.fetch_user(int(player.user_id))
+                    username = user.display_name if user else f"User {player.user_id}"
+                except Exception:
+                    user = None
+                    username = f"User {player.user_id}"
                 results_content += f"#{idx}: {username} - {player.total_score} points\n"
         else:
             results_content += "No players yet!\n"
@@ -489,36 +498,46 @@ class RoundsCog(commands.Cog):
                 main_results += "The round has ended! Here are the winners:\n\n"
 
                 # Add top 3 only to main message
-                for idx, (player, submission, score) in enumerate(results[:3]):
+                for idx, (player, submission, submission_index, score) in enumerate(results[:3]):
                     if idx >= 3:
                         break
 
-                    user = self.bot.get_user(
-                        int(player.user_id)
-                    ) or await self.bot.fetch_user(int(player.user_id))
-                    username = user.display_name if user else f"User {player.user_id}"
+                    user = None
+                    try:
+                        user = self.bot.get_user(int(player.user_id)) or await self.bot.fetch_user(
+                            int(player.user_id)
+                        )
+                        username = user.display_name if user else f"User {player.user_id}"
+                    except Exception:
+                        # Default to None if we can't fetch the user
+                        username = f"User {player.user_id}"
 
                     medal = "🥇 " if idx == 0 else "🥈 " if idx == 1 else "🥉 "
-                    voting_emoji = f"{VOTING_EMOJIS[idx]} " if idx < len(VOTING_EMOJIS) else ""
-                    main_results += f"{medal}{voting_emoji}#{idx + 1}: {username} - {score} votes\n"
+                    voting_emoji = f"{VOTING_EMOJIS[submission_index]} " if submission_index < len(VOTING_EMOJIS) else ""
+                    main_results += f"{medal}{voting_emoji}#{submission_index + 1}: {username} - {score} votes\n"
 
                 results_message = await target_channel.send(main_results)
 
                 # Send detailed results in follow-up messages
                 detailed_results = ""
-                for idx, (player, submission, score) in enumerate(results):
-                    user = self.bot.get_user(
-                        int(player.user_id)
-                    ) or await self.bot.fetch_user(int(player.user_id))
-                    username = user.display_name if user else f"User {player.user_id}"
+                for idx, (player, submission, submission_index, score) in enumerate(results):
+                    user = None
+                    try:
+                        user = self.bot.get_user(int(player.user_id)) or await self.bot.fetch_user(
+                            int(player.user_id)
+                        )
+                        username = user.display_name if user else f"User {player.user_id}"
+                    except Exception:
+                        # Default to None if we can't fetch the user
+                        username = f"User {player.user_id}"
 
                     medal = (
                         "🥇 "
                         if idx == 0
                         else "🥈 " if idx == 1 else "🥉 " if idx == 2 else ""
                     )
-                    voting_emoji = f"{VOTING_EMOJIS[idx]} " if idx < len(VOTING_EMOJIS) else ""
-                    entry = f"### {medal}{voting_emoji}#{idx + 1}: {username} - {score} votes\n"
+                    voting_emoji = f"{VOTING_EMOJIS[submission_index]} " if submission_index < len(VOTING_EMOJIS) else ""
+                    entry = f"### {medal}{voting_emoji}#{submission_index + 1}: {username} - {score} votes\n"
                     entry += f"{submission.content}\n"
                     if submission.description:
                         entry += f"*{submission.description}*\n"
@@ -539,12 +558,15 @@ class RoundsCog(commands.Cog):
                 leaderboard_msg = "## 📊 Current Leaderboard\n\n"
                 if leaderboard:
                     for idx, player in enumerate(leaderboard, 1):
-                        user = self.bot.get_user(
-                            int(player.user_id)
-                        ) or await self.bot.fetch_user(int(player.user_id))
-                        username = (
-                            user.display_name if user else f"User {player.user_id}"
-                        )
+                        user = None
+                        try:
+                            user = self.bot.get_user(int(player.user_id)) or await self.bot.fetch_user(
+                                int(player.user_id)
+                            )
+                            username = user.display_name if user else f"User {player.user_id}"
+                        except Exception:
+                            # Default to None if we can't fetch the user
+                            username = f"User {player.user_id}"
                         leaderboard_msg += (
                             f"#{idx}: {username} - {player.total_score} points\n"
                         )

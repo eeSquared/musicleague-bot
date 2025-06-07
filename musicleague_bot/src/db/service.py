@@ -264,7 +264,7 @@ class DatabaseService:
         submissions = await self.get_round_submissions(round_id)
 
         results = []
-        for submission in submissions:
+        for idx, submission in enumerate(submissions):
             # Get the player
             query = select(Player).where(Player.id == submission.player_id)
             result = await self.session.execute(query)
@@ -274,10 +274,10 @@ class DatabaseService:
             player.total_score += submission.votes_received
 
             # Add to results
-            results.append((player, submission, submission.votes_received))
+            results.append((player, submission, idx, submission.votes_received))
 
         await self.session.commit()
 
         # Sort results by votes (highest first)
-        results.sort(key=lambda x: x[2], reverse=True)
+        results.sort(key=lambda x: x[3], reverse=True)
         return results

@@ -491,50 +491,42 @@ class RoundsCog(commands.Cog):
 
         # Only proceed if we have a valid channel
         if target_channel:
-            # Split the message if it's too long
-            if len(results_content) <= 2000:
-                results_message = await target_channel.send(results_content)
-            else:
-                # Create a main results message with a summary
-                main_results = (
-                    f"# 🏆 Results for Round #{round_obj.round_number} 🏆\n\n"
+            # Always use the same pattern regardless of message length:
+            # 1. Send a summary with title
+            # 2. Add all detailed results
+            # 3. Send the leaderboard
+            
+            # Create a main results message with a summary
+            round_results = (
+                f"# 🏆 Results for Round #{round_obj.round_number} 🏆\n\n"
+            )
+            round_results += f"**Theme**: {round_obj.theme}\n\n"
+            round_results += "The round has ended! Here are the winners:\n\n"
+
+            results_message = await target_channel.send(round_results)
+            round_results = ""
+            # Send detailed results in follow-up messages
+            for idx, (player, submission, submission_index, score) in enumerate(results):
+                username = await self._get_username(player.user_id)
+                entry = self._format_submission_result(
+                    idx, submission, submission_index, score, username
                 )
-                main_results += "The round has ended! Here are the winners:\n\n"
 
-                # Add top 3 only to main message
-                for idx, (player, submission, submission_index, score) in enumerate(results[:3]):
-                    if idx >= 3:
-                        break
+                # If adding this entry would make the message too long, send what we have and start a new message
+                if len(round_results + entry) > 1900:
+                    if round_results:  # Only send if not empty
+                        await target_channel.send(round_results)
+                    round_results = entry
+                else:
+                    round_results += entry
 
-                    username = await self._get_username(player.user_id)
-                    medal = self._get_medal_emoji(idx)
-                    voting_emoji = f"{VOTING_EMOJIS[submission_index]} " if submission_index < len(VOTING_EMOJIS) else ""
-                    main_results += f"{medal}{voting_emoji}#{submission_index + 1}: {username} - {score} votes\n"
+            # Send any remaining detailed results
+            if round_results:
+                await target_channel.send(round_results)
 
-                results_message = await target_channel.send(main_results)
-
-                # Send detailed results in follow-up messages
-                detailed_results = ""
-                for idx, (player, submission, submission_index, score) in enumerate(results):
-                    username = await self._get_username(player.user_id)
-                    entry = self._format_submission_result(
-                        idx, submission, submission_index, score, username
-                    )
-
-                    # If adding this entry would make the message too long, send what we have and start a new message
-                    if len(detailed_results + entry) > 1900:
-                        await target_channel.send(detailed_results)
-                        detailed_results = entry
-                    else:
-                        detailed_results += entry
-
-                # Send any remaining detailed results
-                if detailed_results:
-                    await target_channel.send(detailed_results)
-
-                # Send the leaderboard
-                leaderboard_msg = await self._format_leaderboard(leaderboard)
-                await target_channel.send(leaderboard_msg)
+            # Send the leaderboard
+            leaderboard_msg = await self._format_leaderboard(leaderboard)
+            await target_channel.send(leaderboard_msg)
 
             # Save the message ID and mark as completed
             await db.complete_round(round_obj.id, str(results_message.id))

@@ -839,6 +839,64 @@ class RoundsCog(commands.Cog):
                 ephemeral=True,
             )
 
+    @app_commands.command(
+        name="check_submission", description="Check your current submission for this round"
+    )
+    async def check_submission(self, interaction: discord.Interaction):
+        """Check the user's current submission for the active round."""
+        async with self.bot.get_db_session() as session:
+            db = DatabaseService(session)
+
+            # Get the user's submission for the current round
+            submission = await db.get_user_submission(
+                str(interaction.guild_id), str(interaction.user.id)
+            )
+
+            if not submission:
+                # Check if there's an active round to provide better error messaging
+                active_round = await db.get_active_round(str(interaction.guild_id))
+                
+                if not active_round:
+                    await interaction.response.send_message(
+                        "There's no active round currently. Start a new round with `/start`!",
+                        ephemeral=True,
+                    )
+                elif active_round.is_completed:
+                    await interaction.response.send_message(
+                        "The current round is already completed! Wait for a new round to start.",
+                        ephemeral=True,
+                    )
+                else:
+                    await interaction.response.send_message(
+                        "You haven't submitted anything for this round yet. Use `/submit` to make a submission!",
+                        ephemeral=True,
+                    )
+                return
+
+            # Format and display the submission
+            embed = discord.Embed(
+                title="Your Current Submission",
+                color=discord.Color.green(),
+                timestamp=submission.submitted_at,
+            )
+            
+            embed.add_field(
+                name="Music Link/Title",
+                value=submission.content,
+                inline=False,
+            )
+            
+            if submission.description:
+                embed.add_field(
+                    name="Description",
+                    value=submission.description,
+                    inline=False,
+                )
+            
+            embed.set_footer(text="Submitted on")
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 async def setup(bot):
     await bot.add_cog(RoundsCog(bot))

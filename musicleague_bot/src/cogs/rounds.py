@@ -16,6 +16,53 @@ VOTING_EMOJIS = [
 ]
 
 
+class ThemeSubmissionModal(Modal):
+    """Modal for submitting a theme for the next round."""
+
+    def __init__(self, db_service, guild_id):
+        super().__init__(title="Submit Theme for Next Round")
+        self.db_service = db_service
+        self.guild_id = guild_id
+
+        self.theme = TextInput(
+            label="Theme Suggestion",
+            placeholder="Suggest a theme for the next round",
+            required=True,
+            max_length=100,
+        )
+
+        self.description = TextInput(
+            label="Description (Optional)",
+            placeholder="Explain your theme idea or give examples",
+            required=False,
+            style=discord.TextStyle.paragraph,
+            max_length=300,
+        )
+
+        self.add_item(self.theme)
+        self.add_item(self.description)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Create theme submission in database
+        theme_submission = await self.db_service.create_theme_submission(
+            guild_id=self.guild_id,
+            user_id=str(interaction.user.id),
+            theme_text=self.theme.value,
+            description=self.description.value if self.description.value else None,
+        )
+
+        if not theme_submission:
+            await interaction.response.send_message(
+                "There's no active round for theme submissions!", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            f"Your theme suggestion has been recorded! Thank you for participating.",
+            ephemeral=True,
+        )
+
+
 class SubmissionModal(Modal):
     """Modal for submitting a music entry."""
 
@@ -102,10 +149,10 @@ class RoundsCog(commands.Cog):
         async with self.bot.get_db_session() as session:
             db = DatabaseService(session)
             
-            # Find if this message is a voting message
+            # Find if this message is a regular voting message
             from sqlalchemy import text
             query = text("""
-                SELECT r.id, r.round_number 
+                SELECT r.id, r.round_number, 'music' as voting_type
                 FROM rounds r 
                 JOIN guilds g ON r.guild_id = g.id 
                 WHERE r.voting_message_id = :message_id 
@@ -118,10 +165,27 @@ class RoundsCog(commands.Cog):
             })
             round_data = result.fetchone()
             
+            # If not a music voting message, check if it's a theme voting message
+            if not round_data:
+                theme_query = text("""
+                    SELECT r.id, r.round_number, 'theme' as voting_type
+                    FROM rounds r 
+                    JOIN guilds g ON r.guild_id = g.id 
+                    WHERE r.theme_voting_message_id = :message_id 
+                    AND r.is_completed = TRUE 
+                    AND g.guild_id = :guild_id
+                """)
+                result = await session.execute(theme_query, {
+                    "message_id": str(message.id),
+                    "guild_id": str(message.guild.id)
+                })
+                round_data = result.fetchone()
+            
             if not round_data:
                 return  # Not a voting message
             
             round_id = round_data[0]
+            voting_type = round_data[2]
             
             # Check if the reaction emoji is one of our voting emojis
             emoji_str = str(reaction.emoji)
@@ -186,6 +250,45 @@ class RoundsCog(commands.Cog):
                 elif now >= active_round.voting_end and not active_round.is_completed:
                     # Complete the round and calculate results
                     await self.complete_round(db, active_round)
+
+            # Also check for completed rounds that need theme phase transitions
+            completed_rounds_query = text("""
+                SELECT r.id, r.guild_id, r.theme_submission_end, r.theme_voting_end,
+                       r.theme_submission_message_id, r.theme_voting_message_id
+                FROM rounds r 
+                WHERE r.is_completed = TRUE 
+                AND r.theme_submission_end IS NOT NULL
+            """)
+            completed_rounds = await session.execute(completed_rounds_query)
+
+            for round_row in completed_rounds:
+                round_id = round_row[0]
+                guild_db_id = round_row[1]
+                theme_submission_end = round_row[2]
+                theme_voting_end = round_row[3]
+                theme_submission_message_id = round_row[4]
+                theme_voting_message_id = round_row[5]
+
+                # Get the round object
+                completed_round = await db.get_round(round_id)
+                if not completed_round:
+                    continue
+
+                # Check if theme submission period is over but theme voting hasn't started
+                if (
+                    theme_submission_end and now >= theme_submission_end
+                    and not theme_voting_message_id
+                ):
+                    # Transition to theme voting phase
+                    await self.start_theme_voting_phase(db, completed_round)
+
+                # Check if theme voting period is over
+                elif (
+                    theme_voting_end and now >= theme_voting_end
+                    and theme_voting_message_id
+                ):
+                    # Complete theme voting (announce results)
+                    await self.complete_theme_voting(db, completed_round)
 
     @check_rounds.before_loop
     async def before_check_rounds(self):
@@ -498,6 +601,265 @@ class RoundsCog(commands.Cog):
             # Save the message ID and mark as completed
             await db.complete_round(round_obj.id, str(results_message.id))
 
+            # Start theme submission phase for next round
+            await self.start_theme_submission_phase(db, round_obj, target_channel)
+
+    async def start_theme_submission_phase(self, db, completed_round, target_channel):
+        """Start the theme submission phase after a round is completed."""
+        # Get guild settings
+        discord_guild_id, channel_id, theme_submission_days, theme_voting_days = await db.get_round_theme_guild_info(completed_round.id)
+        if not discord_guild_id:
+            return
+        
+        # Calculate theme submission and voting periods
+        now = datetime.datetime.utcnow()
+        theme_submission_end = now + datetime.timedelta(days=theme_submission_days)
+        theme_voting_end = theme_submission_end + datetime.timedelta(days=theme_voting_days)
+        
+        # Update the completed round with theme submission timings
+        await db.update_round_theme_timing(
+            completed_round.id,
+            theme_submission_end=theme_submission_end,
+            theme_voting_end=theme_voting_end
+        )
+        
+        # Create theme submission announcement
+        embed = discord.Embed(
+            title="🎭 Theme Suggestion Phase",
+            description=f"Round #{completed_round.round_number} is complete! Now suggest themes for the next round.",
+            color=discord.Color.purple(),
+        )
+        
+        embed.add_field(
+            name="How to Submit",
+            value="Use `/submit_theme` to suggest a theme for the next round!",
+            inline=False,
+        )
+        
+        embed.add_field(
+            name="Theme Submission Deadline",
+            value=f"<t:{int(theme_submission_end.timestamp())}:F> (<t:{int(theme_submission_end.timestamp())}:R>)",
+            inline=False,
+        )
+        
+        embed.add_field(
+            name="Theme Voting Deadline",
+            value=f"<t:{int(theme_voting_end.timestamp())}:F> (<t:{int(theme_voting_end.timestamp())}:R>)",
+            inline=False,
+        )
+        
+        # Send the theme submission announcement
+        if target_channel:
+            try:
+                theme_message = await target_channel.send(embed=embed)
+                await db.update_round_theme_message_ids(
+                    completed_round.id, theme_submission_message_id=str(theme_message.id)
+                )
+            except Exception as e:
+                print(f"Error sending theme submission message: {e}")
+
+    async def start_theme_voting_phase(self, db, round_obj):
+        """Start the theme voting phase using emoji reactions."""
+        # Get guild info
+        discord_guild_id, channel_id, _ = await db.get_round_guild_info(round_obj.id)
+        if not discord_guild_id:
+            return
+
+        guild = self.bot.get_guild(int(discord_guild_id))
+        if not guild:
+            return
+
+        # Get theme submissions
+        theme_submissions = await db.get_round_theme_submissions(round_obj.id)
+        
+        if not theme_submissions:
+            # No theme submissions, skip theme voting
+            return
+
+        # Check if we have too many theme submissions for our emoji set
+        if len(theme_submissions) > len(VOTING_EMOJIS):
+            # Truncate to available emojis
+            theme_submissions = theme_submissions[:len(VOTING_EMOJIS)]
+
+        # Find the target channel
+        target_channel = None
+        if channel_id:
+            target_channel = guild.get_channel(int(channel_id))
+            if (
+                target_channel
+                and not target_channel.permissions_for(guild.me).send_messages
+            ):
+                target_channel = None
+
+        if not target_channel:
+            for channel in guild.text_channels:
+                if channel.permissions_for(guild.me).send_messages:
+                    target_channel = channel
+                    break
+
+        # If we found a valid channel, send the theme voting message
+        if target_channel:
+            try:
+                # Send a header message for theme voting
+                main_content = f"# 🎭 Theme Voting for Next Round\n\n"
+                main_content += f"Vote for your favorite theme suggestions using the emoji reactions below!\n"
+                main_content += f"You can vote for up to 3 themes.\n\n"
+                
+                # Send the main voting message
+                voting_message = await target_channel.send(
+                    main_content, allowed_mentions=discord.AllowedMentions.none()
+                )
+                
+                # Send detailed theme submission info in follow-up messages
+                for idx, theme_submission in enumerate(theme_submissions):
+                    detail_entry = self._format_theme_voting_detail(idx, theme_submission)
+                    await target_channel.send(
+                        detail_entry, allowed_mentions=discord.AllowedMentions.none()
+                    )
+
+                # Add emoji reactions for each theme submission
+                for idx, theme_submission in enumerate(theme_submissions):
+                    emoji = VOTING_EMOJIS[idx]
+                    try:
+                        await voting_message.add_reaction(emoji)
+                    except discord.HTTPException:
+                        pass
+
+                # Save the theme voting message ID
+                await db.update_round_theme_message_ids(
+                    round_obj.id, theme_voting_message_id=str(voting_message.id)
+                )
+
+            except Exception as e:
+                await target_channel.send(
+                    f"Error creating theme voting message: {e}"
+                )
+
+    def _format_theme_voting_detail(self, theme_index, theme_submission):
+        """Format detailed theme submission information for voting messages."""
+        emoji = VOTING_EMOJIS[theme_index] if theme_index < len(VOTING_EMOJIS) else "📌"
+        detail = f"{emoji} **Theme #{theme_index + 1}**: {theme_submission.theme_text}\n"
+        if theme_submission.description:
+            detail += f"*{theme_submission.description}*\n"
+        detail += "\n"
+        return detail
+
+    async def complete_theme_voting(self, db, round_obj):
+        """Complete theme voting and select the winning theme for the next round."""
+        # Get guild info
+        discord_guild_id, channel_id, _ = await db.get_round_guild_info(round_obj.id)
+        if not discord_guild_id:
+            return
+
+        guild = self.bot.get_guild(int(discord_guild_id))
+        if not guild:
+            return
+
+        # Get theme submissions
+        theme_submissions = await db.get_round_theme_submissions(round_obj.id)
+        
+        # Count emoji reactions if we have a theme voting message
+        if round_obj.theme_voting_message_id:
+            voting_message = None
+            
+            # Try to find the theme voting message
+            if channel_id:
+                target_channel = guild.get_channel(int(channel_id))
+                if target_channel:
+                    try:
+                        voting_message = await target_channel.fetch_message(
+                            int(round_obj.theme_voting_message_id)
+                        )
+                    except Exception:
+                        pass
+
+            # If not found in dedicated channel, search all channels
+            if not voting_message:
+                for channel in guild.text_channels:
+                    try:
+                        voting_message = await channel.fetch_message(
+                            int(round_obj.theme_voting_message_id)
+                        )
+                        break
+                    except Exception:
+                        continue
+
+            # Count reactions for each theme submission
+            if voting_message:
+                for idx, theme_submission in enumerate(theme_submissions):
+                    if idx < len(VOTING_EMOJIS):
+                        emoji = VOTING_EMOJIS[idx]
+                        reaction = discord.utils.get(voting_message.reactions, emoji=emoji)
+                        if reaction:
+                            vote_count = max(0, reaction.count - 1)
+                            theme_submission.votes_received = vote_count
+                        else:
+                            theme_submission.votes_received = 0
+                    else:
+                        theme_submission.votes_received = 0
+
+                await db.session.commit()
+
+        # Calculate theme voting results
+        theme_results = await db.calculate_theme_voting_results(round_obj.id)
+        
+        # Select the winning theme (most votes)
+        winning_theme = "General Music"  # Default theme
+        if theme_results:
+            winner = theme_results[0]  # First in sorted list (highest votes)
+            winning_theme = winner[1].theme_text  # theme_submission.theme_text
+        
+        # Find target channel for announcement
+        target_channel = None
+        if channel_id:
+            target_channel = guild.get_channel(int(channel_id))
+            if (
+                target_channel
+                and not target_channel.permissions_for(guild.me).send_messages
+            ):
+                target_channel = None
+
+        if not target_channel:
+            for channel in guild.text_channels:
+                if channel.permissions_for(guild.me).send_messages:
+                    target_channel = channel
+                    break
+
+        # Announce the winning theme
+        if target_channel:
+            embed = discord.Embed(
+                title="🎭 Theme Voting Results",
+                description=f"The theme for the next round has been decided!",
+                color=discord.Color.green(),
+            )
+            
+            embed.add_field(
+                name="Winning Theme",
+                value=f"**{winning_theme}**",
+                inline=False,
+            )
+            
+            if theme_results:
+                results_text = ""
+                for idx, (player, theme_submission, _, votes) in enumerate(theme_results[:3]):
+                    username = await self._get_username(player.user_id)
+                    position = ["🥇", "🥈", "🥉"][idx] if idx < 3 else f"#{idx + 1}"
+                    results_text += f"{position} {theme_submission.theme_text} - {votes} votes (by {username})\n"
+                
+                embed.add_field(
+                    name="Top Theme Suggestions",
+                    value=results_text,
+                    inline=False,
+                )
+            
+            embed.add_field(
+                name="What's Next?",
+                value="Use `/start` to begin the next round with the winning theme!",
+                inline=False,
+            )
+            
+            await target_channel.send(embed=embed)
+
     @app_commands.command(name="start", description="Start a new round of Music League")
     @app_commands.describe(theme="Theme for this round (required)")
     async def start_round(self, interaction: discord.Interaction, theme: str):
@@ -621,6 +983,57 @@ class RoundsCog(commands.Cog):
 
             # Show submission modal
             modal = SubmissionModal(db, str(interaction.guild_id))
+            await interaction.response.send_modal(modal)
+
+    @app_commands.command(
+        name="submit_theme", description="Submit a theme suggestion for the next round"
+    )
+    async def submit_theme(self, interaction: discord.Interaction):
+        """Submit a theme suggestion for the next round."""
+        async with self.bot.get_db_session() as session:
+            db = DatabaseService(session)
+
+            # Check if there's an active round
+            active_round = await db.get_active_round(str(interaction.guild_id))
+
+            if not active_round:
+                await interaction.response.send_message(
+                    "There's no active round! Theme submissions happen after rounds are completed.",
+                    ephemeral=True,
+                )
+                return
+
+            if not active_round.is_completed:
+                await interaction.response.send_message(
+                    "The current round is still ongoing! Theme submissions start after the round is completed.",
+                    ephemeral=True,
+                )
+                return
+
+            # Check if we're in the theme submission period
+            now = datetime.datetime.utcnow()
+            if not active_round.theme_submission_end:
+                await interaction.response.send_message(
+                    "Theme submission phase hasn't started yet.",
+                    ephemeral=True,
+                )
+                return
+
+            if now >= active_round.theme_submission_end:
+                if active_round.theme_voting_end and now < active_round.theme_voting_end:
+                    await interaction.response.send_message(
+                        f"Theme submission period has ended! Theme voting is now open until <t:{int(active_round.theme_voting_end.timestamp())}:F>",
+                        ephemeral=True,
+                    )
+                else:
+                    await interaction.response.send_message(
+                        f"Theme submission and voting periods have ended. Wait for the next round!",
+                        ephemeral=True,
+                    )
+                return
+
+            # Show theme submission modal
+            modal = ThemeSubmissionModal(db, str(interaction.guild_id))
             await interaction.response.send_modal(modal)
 
     @app_commands.command(

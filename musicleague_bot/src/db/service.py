@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func
 from sqlalchemy.future import select
 from datetime import datetime, timedelta
-from .models import Guild, Player, Round, Submission
+from .models import Guild, Player, Round, Submission, ThemeSubmission
 
 
 class DatabaseService:
@@ -30,6 +30,8 @@ class DatabaseService:
         guild_id: str,
         submission_days: int = None,
         voting_days: int = None,
+        theme_submission_days: int = None,
+        theme_voting_days: int = None,
         channel_id: str = None,
     ) -> Guild:
         """Update the settings for a guild."""
@@ -40,6 +42,12 @@ class DatabaseService:
 
         if voting_days is not None:
             guild.voting_days = voting_days
+
+        if theme_submission_days is not None:
+            guild.theme_submission_days = theme_submission_days
+
+        if theme_voting_days is not None:
+            guild.theme_voting_days = theme_voting_days
 
         if channel_id is not None:
             guild.channel_id = channel_id
@@ -214,6 +222,27 @@ class DatabaseService:
 
         return row[0], row[1], row[2]  # guild_discord_id, channel_id, voting_days
 
+    async def get_round_theme_guild_info(self, round_id: int) -> tuple:
+        """Get the Discord guild ID, channel ID, and theme settings for a round."""
+        from sqlalchemy import text
+
+        query = text(
+            """
+            SELECT g.guild_id, g.channel_id, g.theme_submission_days, g.theme_voting_days
+            FROM guilds g
+            JOIN rounds r ON r.guild_id = g.id
+            WHERE r.id = :round_id
+        """
+        )
+
+        result = await self.session.execute(query, {"round_id": round_id})
+        row = result.first()
+
+        if not row:
+            return None, None, None, None
+
+        return row[0], row[1], row[2], row[3]  # guild_discord_id, channel_id, theme_submission_days, theme_voting_days
+
     # Submission operations
     async def create_submission(
         self, guild_id: str, user_id: str, content: str, description: str = None
@@ -281,3 +310,102 @@ class DatabaseService:
         # Sort results by votes (highest first)
         results.sort(key=lambda x: x[3], reverse=True)
         return results
+
+    # Theme submission operations
+    async def create_theme_submission(
+        self, guild_id: str, user_id: str, theme_text: str, description: str = None
+    ) -> ThemeSubmission:
+        """Create a new theme submission for the active round."""
+        player = await self.get_or_create_player(guild_id, user_id)
+        round_obj = await self.get_active_round(guild_id)
+
+        if not round_obj:
+            return None
+
+        # Check if player already submitted a theme in this round
+        query = select(ThemeSubmission).where(
+            ThemeSubmission.round_id == round_obj.id, ThemeSubmission.player_id == player.id
+        )
+        result = await self.session.execute(query)
+        existing_submission = result.scalars().first()
+
+        if existing_submission:
+            # Update existing theme submission
+            existing_submission.theme_text = theme_text
+            existing_submission.description = description
+            existing_submission.submitted_at = datetime.utcnow()
+            await self.session.commit()
+            return existing_submission
+
+        # Create new theme submission
+        theme_submission = ThemeSubmission(
+            round_id=round_obj.id,
+            player_id=player.id,
+            theme_text=theme_text,
+            description=description,
+        )
+
+        self.session.add(theme_submission)
+        await self.session.commit()
+        return theme_submission
+
+    async def get_round_theme_submissions(self, round_id: int) -> list[ThemeSubmission]:
+        """Get all theme submissions for a round."""
+        query = select(ThemeSubmission).where(ThemeSubmission.round_id == round_id)
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
+    async def calculate_theme_voting_results(self, round_id: int) -> list[tuple]:
+        """Calculate the results for theme voting."""
+        # Get all theme submissions for the round
+        theme_submissions = await self.get_round_theme_submissions(round_id)
+
+        results = []
+        for idx, theme_submission in enumerate(theme_submissions):
+            # Get the player
+            query = select(Player).where(Player.id == theme_submission.player_id)
+            result = await self.session.execute(query)
+            player = result.scalars().first()
+
+            # Add to results
+            results.append((player, theme_submission, idx, theme_submission.votes_received))
+
+        # Sort results by votes (highest first)
+        results.sort(key=lambda x: x[3], reverse=True)
+        return results
+
+    async def update_round_theme_message_ids(
+        self,
+        round_id: int,
+        theme_submission_message_id: str = None,
+        theme_voting_message_id: str = None,
+    ) -> Round:
+        """Update theme-related message IDs for a round."""
+        round_obj = await self.get_round(round_id)
+
+        if theme_submission_message_id:
+            round_obj.theme_submission_message_id = theme_submission_message_id
+
+        if theme_voting_message_id:
+            round_obj.theme_voting_message_id = theme_voting_message_id
+
+        await self.session.commit()
+        return round_obj
+
+    async def update_round_theme_timing(
+        self,
+        round_id: int,
+        theme_submission_end: datetime = None,
+        theme_voting_end: datetime = None,
+    ) -> Round:
+        """Update the timing for a round's theme submission or voting period."""
+        round_obj = await self.get_round(round_id)
+
+        if theme_submission_end:
+            round_obj.theme_submission_end = theme_submission_end
+
+        if theme_voting_end:
+            round_obj.theme_voting_end = theme_voting_end
+
+        await self.session.commit()
+        return round_obj

@@ -16,6 +16,8 @@ class SettingsCog(commands.Cog):
     @app_commands.describe(
         submission_days="Number of days for the submission period",
         voting_days="Number of days for the voting period",
+        theme_submission_days="Number of days for theme submission period",
+        theme_voting_days="Number of days for theme voting period",
         channel="Dedicated channel for Music League messages",
     )
     async def settings(
@@ -23,6 +25,8 @@ class SettingsCog(commands.Cog):
         interaction: discord.Interaction,
         submission_days: int = None,
         voting_days: int = None,
+        theme_submission_days: int = None,
+        theme_voting_days: int = None,
         channel: discord.TextChannel = None,
     ):
         """Configure settings for Music League on this server."""
@@ -41,6 +45,8 @@ class SettingsCog(commands.Cog):
                 guild_id=str(interaction.guild_id),
                 submission_days=submission_days,
                 voting_days=voting_days,
+                theme_submission_days=theme_submission_days,
+                theme_voting_days=theme_voting_days,
                 channel_id=str(channel.id) if channel else None,
             )
 
@@ -55,6 +61,12 @@ class SettingsCog(commands.Cog):
             )
             embed.add_field(
                 name="Voting Period", value=f"{updated_settings.voting_days} days"
+            )
+            embed.add_field(
+                name="Theme Submission Period", value=f"{updated_settings.theme_submission_days} days"
+            )
+            embed.add_field(
+                name="Theme Voting Period", value=f"{updated_settings.theme_voting_days} days"
             )
 
             # Add dedicated channel information if set

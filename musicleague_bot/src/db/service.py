@@ -222,6 +222,27 @@ class DatabaseService:
 
         return row[0], row[1], row[2]  # guild_discord_id, channel_id, voting_days
 
+    async def get_round_theme_guild_info(self, round_id: int) -> tuple:
+        """Get the Discord guild ID, channel ID, and theme settings for a round."""
+        from sqlalchemy import text
+
+        query = text(
+            """
+            SELECT g.guild_id, g.channel_id, g.theme_submission_days, g.theme_voting_days
+            FROM guilds g
+            JOIN rounds r ON r.guild_id = g.id
+            WHERE r.id = :round_id
+        """
+        )
+
+        result = await self.session.execute(query, {"round_id": round_id})
+        row = result.first()
+
+        if not row:
+            return None, None, None, None
+
+        return row[0], row[1], row[2], row[3]  # guild_discord_id, channel_id, theme_submission_days, theme_voting_days
+
     # Submission operations
     async def create_submission(
         self, guild_id: str, user_id: str, content: str, description: str = None

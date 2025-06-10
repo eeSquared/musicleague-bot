@@ -256,10 +256,8 @@ class RoundsCog(commands.Cog):
                 SELECT r.id, r.guild_id, r.theme_submission_end, r.theme_voting_end,
                        r.theme_submission_message_id, r.theme_voting_message_id
                 FROM rounds r 
-                JOIN guilds g ON r.guild_id = g.id 
                 WHERE r.is_completed = TRUE 
                 AND r.theme_submission_end IS NOT NULL
-                AND g.guild_id = r.guild_id
             """)
             completed_rounds = await session.execute(completed_rounds_query)
 
@@ -609,13 +607,14 @@ class RoundsCog(commands.Cog):
     async def start_theme_submission_phase(self, db, completed_round, target_channel):
         """Start the theme submission phase after a round is completed."""
         # Get guild settings
-        guild_id = str(completed_round.guild_id)
-        guild = await db.get_or_create_guild(guild_id)
+        discord_guild_id, channel_id, theme_submission_days, theme_voting_days = await db.get_round_theme_guild_info(completed_round.id)
+        if not discord_guild_id:
+            return
         
         # Calculate theme submission and voting periods
         now = datetime.datetime.utcnow()
-        theme_submission_end = now + datetime.timedelta(days=guild.theme_submission_days)
-        theme_voting_end = theme_submission_end + datetime.timedelta(days=guild.theme_voting_days)
+        theme_submission_end = now + datetime.timedelta(days=theme_submission_days)
+        theme_voting_end = theme_submission_end + datetime.timedelta(days=theme_voting_days)
         
         # Update the completed round with theme submission timings
         await db.update_round_theme_timing(

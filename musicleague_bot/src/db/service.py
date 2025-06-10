@@ -258,6 +258,24 @@ class DatabaseService:
         result = await self.session.execute(query)
         return result.scalars().all()
 
+    async def get_user_submission(self, guild_id: str, user_id: str) -> Submission:
+        """Get a user's submission for the current active round."""
+        # Get the active round for this guild
+        round_obj = await self.get_active_round(guild_id)
+        if not round_obj:
+            return None
+
+        # Get or create the player
+        player = await self.get_or_create_player(guild_id, user_id)
+
+        # Find the submission for this player in the active round
+        query = select(Submission).where(
+            Submission.round_id == round_obj.id, 
+            Submission.player_id == player.id
+        )
+        result = await self.session.execute(query)
+        return result.scalars().first()
+
     async def calculate_round_results(self, round_id: int) -> list[tuple]:
         """Calculate the results for a round and update player scores."""
         # Get all submissions for the round

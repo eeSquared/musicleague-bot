@@ -27,6 +27,8 @@ class Guild(Base):
     guild_id = Column(String, unique=True, nullable=False)
     submission_days = Column(Integer, default=3)
     voting_days = Column(Integer, default=3)
+    theme_submission_days = Column(Integer, default=2)
+    theme_voting_days = Column(Integer, default=2)
     active_round = Column(Integer, nullable=True)
     channel_id = Column(String, nullable=True)  # Dedicated channel for Music League
 
@@ -52,6 +54,9 @@ class Player(Base):
     submissions = relationship(
         "Submission", back_populates="player", cascade="all, delete-orphan"
     )
+    theme_submissions = relationship(
+        "ThemeSubmission", back_populates="player", cascade="all, delete-orphan"
+    )
 
 
 class Round(Base):
@@ -66,16 +71,41 @@ class Round(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     submission_end = Column(DateTime, nullable=False)
     voting_end = Column(DateTime, nullable=False)
+    theme_submission_end = Column(DateTime, nullable=True)
+    theme_voting_end = Column(DateTime, nullable=True)
     is_completed = Column(Boolean, default=False)
     submission_message_id = Column(String, nullable=True)
     voting_message_id = Column(String, nullable=True)
     results_message_id = Column(String, nullable=True)
+    theme_submission_message_id = Column(String, nullable=True)
+    theme_voting_message_id = Column(String, nullable=True)
 
     # Relationships
     guild = relationship("Guild", back_populates="rounds")
     submissions = relationship(
         "Submission", back_populates="round", cascade="all, delete-orphan"
     )
+    theme_submissions = relationship(
+        "ThemeSubmission", back_populates="round", cascade="all, delete-orphan"
+    )
+
+
+class ThemeSubmission(Base):
+    """Model representing a theme submission for the next round."""
+
+    __tablename__ = "theme_submissions"
+
+    id = Column(Integer, primary_key=True)
+    round_id = Column(Integer, ForeignKey("rounds.id"), nullable=False)
+    player_id = Column(Integer, ForeignKey("players.id"), nullable=False)
+    theme_text = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    submitted_at = Column(DateTime, default=datetime.datetime.utcnow)
+    votes_received = Column(Integer, default=0)
+
+    # Relationships
+    round = relationship("Round", back_populates="theme_submissions")
+    player = relationship("Player", back_populates="theme_submissions")
 
 
 class Submission(Base):

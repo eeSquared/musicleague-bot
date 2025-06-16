@@ -291,6 +291,14 @@ class RoundsCog(commands.Cog):
                     round_obj.id, voting_message_id=str(voting_message.id)
                 )
 
+                # Pin the voting message for easy discovery
+                try:
+                    if target_channel.permissions_for(guild.me).manage_messages:
+                        await voting_message.pin()
+                except Exception as e:
+                    # Don't fail the voting process if pinning fails
+                    print(f"Could not pin voting message: {e}")
+
             except Exception as e:
                 # If message creation fails, send an error message
                 await target_channel.send(
@@ -417,6 +425,14 @@ class RoundsCog(commands.Cog):
 
                 # Commit the vote counts to the database
                 await db.session.commit()
+
+                # Unpin the voting message since the round is complete
+                try:
+                    if voting_message.pinned:
+                        await voting_message.unpin()
+                except Exception as e:
+                    # Don't fail the completion process if unpinning fails
+                    print(f"Could not unpin voting message: {e}")
 
         # Calculate results
         results = await db.calculate_round_results(round_obj.id)

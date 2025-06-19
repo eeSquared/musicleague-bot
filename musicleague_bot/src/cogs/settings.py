@@ -17,6 +17,7 @@ class SettingsCog(commands.Cog):
         submission_days="Number of days for the submission period",
         voting_days="Number of days for the voting period",
         channel="Dedicated channel for Music League messages",
+        reminder_role="Role to ping for 24-hour reminders",
     )
     async def settings(
         self,
@@ -24,6 +25,7 @@ class SettingsCog(commands.Cog):
         submission_days: int = None,
         voting_days: int = None,
         channel: discord.TextChannel = None,
+        reminder_role: discord.Role = None,
     ):
         """Configure settings for Music League on this server."""
         if not interaction.user.guild_permissions.manage_guild:
@@ -42,6 +44,7 @@ class SettingsCog(commands.Cog):
                 submission_days=submission_days,
                 voting_days=voting_days,
                 channel_id=str(channel.id) if channel else None,
+                reminder_role_id=str(reminder_role.id) if reminder_role else None,
             )
 
             # Confirm settings back to the user
@@ -67,6 +70,19 @@ class SettingsCog(commands.Cog):
                 embed.add_field(
                     name="Dedicated Channel",
                     value="None (bot will use any available channel)",
+                    inline=False,
+                )
+
+            # Add reminder role information if set
+            if updated_settings.reminder_role_id:
+                role_mention = f"<@&{updated_settings.reminder_role_id}>"
+                embed.add_field(
+                    name="Reminder Role", value=role_mention, inline=False
+                )
+            else:
+                embed.add_field(
+                    name="Reminder Role",
+                    value="None (no 24-hour reminders will be sent)",
                     inline=False,
                 )
 

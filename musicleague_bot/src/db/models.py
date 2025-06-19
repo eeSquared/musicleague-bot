@@ -29,6 +29,7 @@ class Guild(Base):
     voting_days = Column(Integer, default=3)
     active_round = Column(Integer, nullable=True)
     channel_id = Column(String, nullable=True)  # Dedicated channel for Music League
+    reminder_role_id = Column(String, nullable=True)  # Role to ping for reminders
 
     # Relationships
     rounds = relationship("Round", back_populates="guild", cascade="all, delete-orphan")
@@ -70,6 +71,8 @@ class Round(Base):
     submission_message_id = Column(String, nullable=True)
     voting_message_id = Column(String, nullable=True)
     results_message_id = Column(String, nullable=True)
+    submission_reminder_sent = Column(Boolean, default=False)
+    voting_reminder_sent = Column(Boolean, default=False)
 
     # Relationships
     guild = relationship("Guild", back_populates="rounds")

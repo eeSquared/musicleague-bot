@@ -31,6 +31,7 @@ class DatabaseService:
         submission_days: int = None,
         voting_days: int = None,
         channel_id: str = None,
+        reminder_role_id: str = None,
     ) -> Guild:
         """Update the settings for a guild."""
         guild = await self.get_or_create_guild(guild_id)
@@ -43,6 +44,9 @@ class DatabaseService:
 
         if channel_id is not None:
             guild.channel_id = channel_id
+
+        if reminder_role_id is not None:
+            guild.reminder_role_id = reminder_role_id
 
         await self.session.commit()
         return guild
@@ -199,7 +203,7 @@ class DatabaseService:
         # Use a direct SQL query to avoid lazy loading issues
         query = text(
             """
-            SELECT g.guild_id, g.channel_id, g.voting_days
+            SELECT g.guild_id, g.channel_id, g.voting_days, g.reminder_role_id
             FROM guilds g
             JOIN rounds r ON r.guild_id = g.id
             WHERE r.id = :round_id
@@ -210,9 +214,27 @@ class DatabaseService:
         row = result.first()
 
         if not row:
-            return None, None, None
+            return None, None, None, None
 
-        return row[0], row[1], row[2]  # guild_discord_id, channel_id, voting_days
+        return row[0], row[1], row[2], row[3]  # guild_discord_id, channel_id, voting_days, reminder_role_id
+
+    async def update_round_reminder_status(
+        self,
+        round_id: int,
+        submission_reminder_sent: bool = None,
+        voting_reminder_sent: bool = None,
+    ) -> Round:
+        """Update the reminder status for a round."""
+        round_obj = await self.get_round(round_id)
+
+        if submission_reminder_sent is not None:
+            round_obj.submission_reminder_sent = submission_reminder_sent
+
+        if voting_reminder_sent is not None:
+            round_obj.voting_reminder_sent = voting_reminder_sent
+
+        await self.session.commit()
+        return round_obj
 
     # Submission operations
     async def create_submission(

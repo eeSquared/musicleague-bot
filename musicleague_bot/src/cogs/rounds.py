@@ -174,6 +174,9 @@ class RoundsCog(commands.Cog):
                 if not active_round or active_round.is_completed:
                     continue
 
+                # Check for 24-hour reminders before transitions
+                await self.check_reminders(db, active_round, now)
+
                 # Check if submission period is over but voting hasn't started
                 if (
                     now >= active_round.submission_end
@@ -191,10 +194,96 @@ class RoundsCog(commands.Cog):
     async def before_check_rounds(self):
         await self.bot.wait_until_ready()
 
+    async def check_reminders(self, db, round_obj, now):
+        """Check if 24-hour reminders should be sent for submission or voting deadlines."""
+        # Get guild info including reminder role
+        discord_guild_id, channel_id, voting_days, reminder_role_id = await db.get_round_guild_info(round_obj.id)
+        
+        if not discord_guild_id or not reminder_role_id:
+            return  # No guild info or no reminder role configured
+            
+        guild = self.bot.get_guild(int(discord_guild_id))
+        if not guild:
+            return  # Bot might have left the guild
+            
+        role = guild.get_role(int(reminder_role_id))
+        if not role:
+            return  # Role doesn't exist anymore
+            
+        # Check for submission reminder (24 hours before submission deadline)
+        time_until_submission_end = round_obj.submission_end - now
+        if (not round_obj.submission_reminder_sent and 
+            23.5 <= time_until_submission_end.total_seconds() / 3600 <= 24.5 and
+            now < round_obj.submission_end):
+            await self.send_reminder(guild, channel_id, role, round_obj, "submission")
+            await db.update_round_reminder_status(round_obj.id, submission_reminder_sent=True)
+            
+        # Check for voting reminder (24 hours before voting deadline)
+        time_until_voting_end = round_obj.voting_end - now
+        if (not round_obj.voting_reminder_sent and 
+            23.5 <= time_until_voting_end.total_seconds() / 3600 <= 24.5 and
+            now >= round_obj.submission_end and
+            now < round_obj.voting_end):
+            await self.send_reminder(guild, channel_id, role, round_obj, "voting")
+            await db.update_round_reminder_status(round_obj.id, voting_reminder_sent=True)
+
+    async def send_reminder(self, guild, channel_id, role, round_obj, phase):
+        """Send a reminder message to the configured channel."""
+        # Find the target channel
+        target_channel = None
+        
+        if channel_id:
+            target_channel = guild.get_channel(int(channel_id))
+            if target_channel and not target_channel.permissions_for(guild.me).send_messages:
+                target_channel = None
+                
+        # If no dedicated channel or it wasn't found/accessible, find an appropriate channel
+        if not target_channel:
+            for channel in guild.text_channels:
+                if channel.permissions_for(guild.me).send_messages:
+                    target_channel = channel
+                    break
+                    
+        if not target_channel:
+            return  # No suitable channel found
+            
+        # Create reminder message
+        if phase == "submission":
+            title = f"⏰ Submission Reminder - Round #{round_obj.round_number}"
+            message = f"{role.mention} Don't forget to submit your music! You have approximately **24 hours** left to submit for this round."
+            deadline_text = f"Submission deadline: <t:{int(round_obj.submission_end.timestamp())}:F> (<t:{int(round_obj.submission_end.timestamp())}:R>)"
+        else:  # voting
+            title = f"⏰ Voting Reminder - Round #{round_obj.round_number}"
+            message = f"{role.mention} Don't forget to vote! You have approximately **24 hours** left to cast your votes for this round."
+            deadline_text = f"Voting deadline: <t:{int(round_obj.voting_end.timestamp())}:F> (<t:{int(round_obj.voting_end.timestamp())}:R>)"
+            
+        embed = discord.Embed(
+            title=title,
+            description=message,
+            color=discord.Color.orange()
+        )
+        embed.add_field(name="Theme", value=round_obj.theme, inline=False)
+        embed.add_field(name="Deadline", value=deadline_text, inline=False)
+        
+        if phase == "submission":
+            embed.add_field(name="How to Submit", value="Use `/submit` to add your music to this round!", inline=False)
+        else:
+            embed.add_field(name="How to Vote", value="React with emojis on the voting message to cast your votes!", inline=False)
+            
+        try:
+            await target_channel.send(embed=embed)
+        except Exception as e:
+            # If sending fails, try a simple text message as fallback
+            try:
+                simple_message = f"{role.mention} Reminder: {message.replace('**', '')} {deadline_text}"
+                await target_channel.send(simple_message)
+            except Exception:
+                pass  # If even simple message fails, silently continue
+
     async def start_voting_phase(self, db, round_obj):
         """Start the voting phase for a round using emoji reactions."""
         # Get guild info without lazy loading
-        discord_guild_id, channel_id, voting_days = await db.get_round_guild_info(
+        discord_guild_id, channel_id, voting_days, _ = await db.get_round_guild_info(
             round_obj.id
         )
         if not discord_guild_id:
@@ -362,7 +451,7 @@ class RoundsCog(commands.Cog):
     async def complete_round(self, db, round_obj):
         """Complete a round and calculate results based on emoji reactions."""
         # Get guild info without lazy loading
-        discord_guild_id, channel_id, _ = await db.get_round_guild_info(round_obj.id)
+        discord_guild_id, channel_id, _, _ = await db.get_round_guild_info(round_obj.id)
         if not discord_guild_id:
             return  # Couldn't find guild info
 
@@ -748,7 +837,7 @@ class RoundsCog(commands.Cog):
                 return
 
             # Get guild info to access the voting days setting
-            discord_guild_id, channel_id, voting_days = await db.get_round_guild_info(
+            discord_guild_id, channel_id, voting_days, _ = await db.get_round_guild_info(
                 active_round.id
             )
             if not discord_guild_id:

@@ -11,6 +11,7 @@ A Discord bot that allows server members to play a Music League game. This bot a
 - Uses emoji reactions for voting on submissions (supports unlimited submissions, up to 3 votes per player)
 - Leaderboards to track player scores
 - Server-specific configuration and data
+- 24-hour reminders for submission and voting deadlines (configurable role ping)
 
 ## Setup Instructions
 
@@ -63,6 +64,7 @@ A Discord bot that allows server members to play a Music League game. This bot a
    - Use Slash Commands
    - Create Polls
    - Read Channels
+   - Mention Everyone
 6. Copy the generated URL and open it in your browser
 7. Select your server and authorize the bot
 
@@ -72,7 +74,7 @@ A Discord bot that allows server members to play a Music League game. This bot a
 
 All commands are available as Discord slash commands:
 
-- `/settings submission_days:[days] voting_days:[days] channel:[text channel]` - Configure the duration of submission and voting periods, and optionally set a dedicated channel for Music League messages (Admin only)
+- `/settings submission_days:[days] voting_days:[days] channel:[text channel] reminder_role:[role]` - Configure the duration of submission and voting periods, optionally set a dedicated channel for Music League messages, and optionally set a role to ping for 24-hour reminders (Admin only)
 - `/start theme:[required]` - Start a new round with the specified theme (theme is required)
 - `/submit` - Submit an entry for the current round
 - `/status` - Check the current round status
@@ -85,6 +87,7 @@ All commands are available as Discord slash commands:
 1. An admin configures the bot settings with `/settings` (optional)
    - Set submission and voting period durations
    - Optionally designate a specific channel for all Music League activity
+   - Optionally set a role to ping for 24-hour reminders before deadlines
 2. Someone starts a new round with `/start` providing a required theme
 3. Players submit their entries with `/submit` during the submission period
 4. Once the submission period ends naturally (or an admin uses `/end_submission` to force it), voting will automatically open using emoji reactions in the next check cycle (within 5 minutes)
@@ -98,6 +101,16 @@ If you want to keep Music League activity in a specific channel (recommended):
 1. Create a dedicated text channel for Music League in your server
 2. Run `/settings channel:#your-channel-name`
 3. All round announcements, polls, and results will be posted in this channel
+
+### Reminder Notifications
+
+To get pinged with reminders 24 hours before deadlines:
+1. Create a role for Music League players (or use an existing one)
+2. Run `/settings reminder_role:@your-role-name`
+3. Members with this role will be pinged approximately 24 hours before:
+   - Submission deadlines
+   - Voting deadlines
+4. Reminders are only sent once per deadline to avoid spam
 
 ## Database
 

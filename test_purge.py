@@ -19,6 +19,7 @@ async def test_purge():
     from musicleague_bot.src.db.service import DatabaseService
     from musicleague_bot.src.db.models import Guild, Player, Round, Submission
 
+    session = None
     try:
         # Initialize database
         await init_db()
@@ -29,7 +30,8 @@ async def test_purge():
         db = DatabaseService(session)
 
         # Test guild ID
-        test_guild_id = "test_guild_12345"
+        import uuid
+        test_guild_id = f"test_guild_{uuid.uuid4().hex[:8]}"
 
         # Create test data
         print("2. Creating test data...")
@@ -161,9 +163,6 @@ async def test_purge():
         ), f"Expected 0 submissions after purge, found {submission_count}"
         print(f"   ✓ Submission records deleted: {submission_count} remaining")
 
-        # Close session
-        await session.close()
-
         print("\n🎉 ALL PURGE TESTS PASSED!")
         print("\n📊 Summary:")
         print("   • Purge command successfully deletes player, round, and submission data")
@@ -177,6 +176,9 @@ async def test_purge():
 
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        if session:
+            await session.close()
 
 
 def main():

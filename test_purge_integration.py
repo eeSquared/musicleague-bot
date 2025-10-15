@@ -21,6 +21,7 @@ async def test_purge_integration():
     from musicleague_bot.src.db import init_db, get_session
     from musicleague_bot.src.db.service import DatabaseService
 
+    session = None
     try:
         # Initialize database
         await init_db()
@@ -29,7 +30,8 @@ async def test_purge_integration():
         session = await get_session()
         db = DatabaseService(session)
 
-        test_guild_id = "integration_test_guild_999"
+        import uuid
+        test_guild_id = f"integration_test_{uuid.uuid4().hex[:8]}"
 
         print("📋 SCENARIO: A Discord server has been using Music League")
         print("-" * 60)
@@ -154,8 +156,6 @@ async def test_purge_integration():
         print("   ⚙️ All settings are preserved")
         print("   🎯 All player scores are reset to zero")
 
-        await session.close()
-
         print("\n" + "=" * 60)
         print("🎉 INTEGRATION TEST PASSED")
         print("=" * 60)
@@ -171,6 +171,9 @@ async def test_purge_integration():
         import traceback
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        if session:
+            await session.close()
 
 
 def main():

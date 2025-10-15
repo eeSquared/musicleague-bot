@@ -11,7 +11,7 @@ import random
 from datetime import datetime, timedelta
 
 # Add the project directory to the Python path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
 from musicleague_bot.src.db import get_session, init_db
 from musicleague_bot.src.db.service import DatabaseService

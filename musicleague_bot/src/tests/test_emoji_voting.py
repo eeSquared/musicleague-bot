@@ -7,7 +7,7 @@ import sys
 import os
 
 # Add the project directory to the Python path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
 from musicleague_bot.src.cogs.rounds import VOTING_EMOJIS
 

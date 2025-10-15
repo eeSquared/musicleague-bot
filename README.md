@@ -79,6 +79,7 @@ All commands are available as Discord slash commands:
 - `/leaderboard limit:[number]` - Show the top players and their scores
 - `/end_submission` - Forcibly end the submission period and begin voting phase (Admin only)
 - `/end_voting` - Forcibly end the voting period and calculate results (Admin only)
+- `/purge` - Delete all Music League data (rounds, submissions, player scores) for this server while preserving settings (Admin only)
 
 ### How to Play
 

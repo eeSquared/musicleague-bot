@@ -120,6 +120,37 @@ class SettingsCog(commands.Cog):
 
             await interaction.response.send_message(embed=embed)
 
+    @app_commands.command(
+        name="purge", description="Delete all Music League data for this server"
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def purge(self, interaction: discord.Interaction):
+        """Delete all Music League data for this server (requires admin)."""
+        # Double check for administrator permission
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "You need 'Administrator' permission to use this command.",
+                ephemeral=True,
+            )
+            return
+
+        async with self.bot.get_db_session() as session:
+            db = DatabaseService(session)
+
+            # Purge all guild data
+            await db.purge_guild_data(str(interaction.guild_id))
+
+            # Confirm deletion
+            await interaction.response.send_message(
+                "✅ All Music League data for this server has been permanently deleted.\n"
+                "This includes:\n"
+                "• All rounds and their submissions\n"
+                "• All player scores\n"
+                "\nYour server settings have been preserved.\n"
+                "You can start fresh by using `/start` to begin a new round.",
+                ephemeral=True,
+            )
+
 
 async def setup(bot):
     await bot.add_cog(SettingsCog(bot))

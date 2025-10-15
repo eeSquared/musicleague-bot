@@ -281,3 +281,30 @@ class DatabaseService:
         # Sort results by votes (highest first)
         results.sort(key=lambda x: x[3], reverse=True)
         return results
+
+    async def purge_guild_data(self, guild_id: str) -> bool:
+        """Delete player, round, and submission data for a guild, keeping the guild record and settings."""
+        guild = await self.get_or_create_guild(guild_id)
+        
+        # Delete all submissions first (since they depend on rounds and players)
+        query = delete(Submission).where(
+            Submission.round_id.in_(
+                select(Round.id).where(Round.guild_id == guild.id)
+            )
+        )
+        await self.session.execute(query)
+        
+        # Delete all rounds
+        query = delete(Round).where(Round.guild_id == guild.id)
+        await self.session.execute(query)
+        
+        # Delete all players (and their associated submissions via cascade)
+        query = delete(Player).where(Player.guild_id == guild.id)
+        await self.session.execute(query)
+        
+        # Reset the active round
+        guild.active_round = None
+        
+        await self.session.commit()
+        
+        return True
